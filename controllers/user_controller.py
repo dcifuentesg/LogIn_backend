@@ -8,6 +8,7 @@ from datetime import datetime, timedelta
 from flask import current_app, jsonify
 from models.user import User
 from services.user_creation_validation import create_user_validation_chain
+from services.captcha_service import captcha_service, recaptcha_service
 
 class UserController:
     """Controlador para operaciones de usuario"""
@@ -75,16 +76,65 @@ class UserController:
     
     @staticmethod
     def login_user(request_data):
-        """Iniciar sesión de usuario"""
+        """Iniciar sesión de usuario con validación CAPTCHA"""
         try:
             email = request_data.get('email', '').strip()
             password = request_data.get('password', '')
+            captcha_id = request_data.get('captcha_id')
+            captcha_answer = request_data.get('captcha_answer')
+            recaptcha_response = request_data.get('recaptcha_response')
             
             print(f'🔐 Intento de login para: {email}')
             
-            # Validar que todos los campos estén presentes
+            # Validar que todos los campos básicos estén presentes
             if not email or not password:
-                return {'message': 'Todos los campos son obligatorios'}, 400
+                return {'message': 'Email y contraseña son obligatorios'}, 400
+            
+            # Validar CAPTCHA (priorizar reCAPTCHA si está presente)
+            captcha_valid = False
+            captcha_error = None
+            
+            if recaptcha_response:
+                # Validar reCAPTCHA de Google
+                print('🤖 Validando reCAPTCHA...')
+                verification_result = recaptcha_service.verify_recaptcha(recaptcha_response)
+                
+                if verification_result['success']:
+                    # Para reCAPTCHA v3, verificar score si está disponible
+                    score = verification_result.get('score', 1.0)
+                    if score >= 0.5:  # Umbral de confianza
+                        captcha_valid = True
+                        print(f'✅ reCAPTCHA válido (score: {score})')
+                    else:
+                        captcha_error = f'Score de reCAPTCHA muy bajo: {score}'
+                        print(f'❌ reCAPTCHA score bajo: {score}')
+                else:
+                    captcha_error = verification_result.get('error', 'reCAPTCHA inválido')
+                    errors = verification_result.get('errors', [])
+                    if errors:
+                        captcha_error += f' ({", ".join(errors)})'
+                    print(f'❌ reCAPTCHA inválido: {captcha_error}')
+            
+            elif captcha_id and captcha_answer:
+                # Validar CAPTCHA propio
+                print('🧮 Validando CAPTCHA matemático...')
+                captcha_valid = captcha_service.validate_captcha(captcha_id, captcha_answer)
+                if captcha_valid:
+                    print('✅ CAPTCHA matemático válido')
+                else:
+                    captcha_error = 'CAPTCHA inválido o expirado'
+                    print('❌ CAPTCHA matemático inválido')
+            
+            else:
+                captcha_error = 'CAPTCHA requerido. Proporciona recaptcha_response o captcha_id/captcha_answer'
+                print('❌ No se proporcionó CAPTCHA')
+            
+            # Si el CAPTCHA no es válido, retornar error
+            if not captcha_valid:
+                return {
+                    'message': captcha_error or 'CAPTCHA inválido',
+                    'captcha_required': True
+                }, 400
             
             # Buscar el usuario por email
             user = User.find_by_email(email)
@@ -103,13 +153,13 @@ class UserController:
                 return {'message': 'Credenciales inválidas'}, 400
             
             # Crear el token JWT
-            secret_key = os.getenv('JWT_SECRET', 'mascotas_secret_key')  # Usar JWT_SECRET directamente
+            secret_key = os.getenv('JWT_SECRET', 'mascotas_secret_key')
             payload = {
-                'sub': str(user._id),  # Usar 'sub' (subject) estándar JWT
-                'userId': str(user._id),  # Mantener por compatibilidad
+                'sub': str(user._id),
+                'userId': str(user._id),
                 'exp': datetime.utcnow() + timedelta(days=30),
-                'iat': datetime.utcnow(),  # Issued at
-                'type': 'access'  # Tipo de token
+                'iat': datetime.utcnow(),
+                'type': 'access'
             }
             
             token = jwt.encode(payload, secret_key, algorithm='HS256')
@@ -117,6 +167,7 @@ class UserController:
             print(f'✅ Login exitoso para: {email}')
             
             return {
+                'message': 'Login exitoso',
                 'token': token,
                 'user': user.to_dict()
             }, 200

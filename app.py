@@ -10,6 +10,7 @@ from config.database import init_db
 from routes.user_routes import user_bp
 from routes.password_reset_routes import password_reset_bp
 from routes.profile_routes import profile_bp
+from routes.captcha_routes import captcha_bp
 from api import create_api
 
 # Importar telemetría de forma opcional
@@ -57,6 +58,7 @@ def create_app():
     app.register_blueprint(user_bp, url_prefix='/api/users')
     app.register_blueprint(password_reset_bp, url_prefix='/api/auth')
     app.register_blueprint(profile_bp, url_prefix='/api/profile')
+    app.register_blueprint(captcha_bp, url_prefix='/api/captcha')
     
     # Ruta para servir archivos estáticos (imágenes subidas)
     @app.route('/static/uploads/<path:filename>')

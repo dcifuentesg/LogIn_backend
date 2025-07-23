@@ -30,7 +30,7 @@ secure-smtplib==0.1.1
 # Variables de entorno
 python-dotenv==1.0.0
 
-# File handling
+# File handling - necesario para generar imágenes de CAPTCHA
 Pillow==10.2.0
 werkzeug==3.0.1
 
